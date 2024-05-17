@@ -84,6 +84,9 @@ def fetch_results(api, query, page, results_queue):
             return
         except shodan.APIError as e:
             logging.error(f'Shodan API Error on page {page}: {e}')
+            if e.code == 403:
+                logging.error("Access denied (403 Forbidden). Check your API key permissions.")
+                return
             if "usage limits" in str(e):
                 time.sleep(60)  # Wait before retrying if rate limit is hit
         except (RequestException, ConnectionError, Timeout) as e:
@@ -155,7 +158,7 @@ def save_images(results_list, output_dir):
             metadata_path = os.path.join(output_dir, f"{ip_str}_{port}.json")
             try:
                 response = requests.get(image_url, stream=True)
-                if response.status_code == 200):
+                if response.status_code == 200:
                     with open(image_path, 'wb') as file:
                         for chunk in response.iter_content(1024):
                             file.write(chunk)
@@ -163,7 +166,7 @@ def save_images(results_list, output_dir):
                         json.dump(result, file, indent=4)
                     logging.info(f'Image and metadata saved for {ip_str}:{port}')
                 else:
-                    logging.error(f'Failed to save image for {ip_str}:{port}')
+                    logging.error(f'Failed to save image for {ip_str}:{port} with status code {response.status_code}')
             except Exception as e:
                 logging.error(f'Error saving image for {ip_str}:{port}: {e}')
 
@@ -317,27 +320,27 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Search Shodan for vulnerable systems and servers.')
     parser.add_argument('--pages', type=int, default=20, help='Number of pages to search')
-    parser.add_argument('--threads', type=int, default=10, help='Number of concurrent threads')
-    parser.add_argument('--update-key', action='store_true', help='Update the Shodan API key')
-    parser.add_argument('--city', help='Filter by city name')
-    parser.add_argument('--country', help='Filter by 2-letter country code')
-    parser.add_argument('--http-title', help='Filter by HTTP title')
-    parser.add_argument('--net', help='Filter by network range or IP in CIDR notation')
-    parser.add_argument('--org', help='Filter by organization name')
-    parser.add_argument('--port', type=int, help='Filter by port number')
-    parser.add_argument('--product', help='Filter by product name')
-    parser.add_argument('--screenshot-label', help='Filter by screenshot label')
-    parser.add_argument('--state', help='Filter by U.S. state')
-    parser.add_argument('--asn', help='Filter by Autonomous System Number')
-    parser.add_argument('--hostname', help='Filter by hostname')
-    parser.add_argument('--before', help='Filter by time before Shodan last observed the device (YYYY-MM-DD)')
-    parser.add_argument('--after', help='Filter by time after Shodan last observed the device (YYYY-MM-DD)')
-    parser.add_argument('--no-password', action='store_true', help='Search for open VNC or RDP connections without password')
-    parser.add_argument('--specific-ip', help='Search for a specific IP address')
-    parser.add_argument('--output-dir', help='Specify a custom output directory for saving results', default="results")
-    parser.add_argument('--use-stream', action='store_true', help='Enable Shodan Stream API for real-time data')
-    parser.add_argument('--scan-ip', help='Create an on-demand scan for a specific IP address')
-    parser.add_argument('--custom-query', help='Specify a custom Shodan search query')
+    parser.add.argument('--threads', type=int, default=10, help='Number of concurrent threads')
+    parser.add.argument('--update-key', action='store_true', help='Update the Shodan API key')
+    parser.add.argument('--city', help='Filter by city name')
+    parser.add.argument('--country', help='Filter by 2-letter country code')
+    parser.add.argument('--http-title', help='Filter by HTTP title')
+    parser.add.argument('--net', help='Filter by network range or IP in CIDR notation')
+    parser.add.argument('--org', help='Filter by organization name')
+    parser.add.argument('--port', type=int, help='Filter by port number')
+    parser.add.argument('--product', help='Filter by product name')
+    parser.add.argument('--screenshot-label', help='Filter by screenshot label')
+    parser.add.argument('--state', help='Filter by U.S. state')
+    parser.add.argument('--asn', help='Filter by Autonomous System Number')
+    parser.add.argument('--hostname', help='Filter by hostname')
+    parser.add.argument('--before', help='Filter by time before Shodan last observed the device (YYYY-MM-DD)')
+    parser.add.argument('--after', help='Filter by time after Shodan last observed the device (YYYY-MM-DD)')
+    parser.add.argument('--no-password', action='store_true', help='Search for open VNC or RDP connections without password')
+    parser.add.argument('--specific-ip', help='Search for a specific IP address')
+    parser.add.argument('--output-dir', help='Specify a custom output directory for saving results', default="results")
+    parser.add.argument('--use-stream', action='store_true', help='Enable Shodan Stream API for real-time data')
+    parser.add.argument('--scan-ip', help='Create an on-demand scan for a specific IP address')
+    parser.add.argument('--custom-query', help='Specify a custom Shodan search query')
 
     args = parser.parse_args()
 
