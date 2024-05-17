@@ -34,43 +34,43 @@ On the first run, the tool will ask for your Shodan API key and save it to a con
 python3 shodan_search.py --pages 10 --threads 5
 ```
 
-**utilizing the Basic Paid API AccessIf you have the basic paid API access, you can obtain more results with a higher number of threads:
+**utilizing the Basic Paid API AccessIf you have the basic paid API access, you can obtain more results with a higher number of threads:**
 
 ```bash
 python3 shodan_search.py --pages 20 --threads 10
 ```
 
-##Using Shodan FiltersTo use Shodan filters (all except vuln and tag), you can run the tool with the desired filters. ##Here is an example:
+**Using Shodan FiltersTo use Shodan filters (all except vuln and tag), you can run the tool with the desired filters. ##Here is an example:**
 ```bash
 python3 shodan_search.py --pages 20 --threads 10 --city "San Diego" --country "US" --http-title "Hacked"
 ```
 
-##Searching for Open VNC or RDP ConnectionsTo search for connections such as VNC or RDP with no password, use the ##following command:
+**Searching for Open VNC or RDP ConnectionsTo search for connections such as VNC or RDP with no password, use the following command:**
 ```bash
 python3 shodan_search.py --pages 20 --threads 10 --no-password
 ```
 
-##Updating the API KeyTo update the Shodan API key, run the following command:
+**Updating the API KeyTo update the Shodan API key, run the following command:**
 ```bash
 python3 shodan_search.py --update-key
 ```
 
 **Examples:
 
-##Basic Search
+**Basic Search**
 ```bash
 python3 shodan_search.py --pages 10 --threads 5
 ```
-##Advanced Search with Filters:
+**Advanced Search with Filters:**
 ```bash
 python3 shodan_search.py --pages 20 --threads 10 --city "San Diego" --country "US" --http-title "Hacked"
 ```
-##Search for a Specific IP Address
+**Search for a Specific IP Address**
 ```bash
 python3 shodan_search.py --pages 1 --threads 1 --specific-ip "1.2.3.4"
 ```
 
-##Search for SS7 Systems
+**Search for SS7 Systems**
 ```bash
 python3 shodan_search.py --pages 20 --threads 10 --port 2905 --protocol ss7
 ```
