@@ -55,7 +55,7 @@ python3 shodan_search.py --pages 20 --threads 10 --no-password
 python3 shodan_search.py --update-key
 ```
 
-**Examples:
+**Examples:**
 
 **Basic Search**
 ```bash
