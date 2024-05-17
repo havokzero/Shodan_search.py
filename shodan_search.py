@@ -6,6 +6,8 @@ import os
 import time
 import logging
 import requests
+import signal
+import sys
 from queue import Queue
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -53,9 +55,12 @@ SEARCH_QUERIES = {
     "36": 'port:2905 protocol:ss7'
 }
 
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def build_query(base_query, filters, no_password=False, specific_ip=None):
+def build_query(base_query, filters, no_password=False, specific_ip=None, custom_query=None):
+    if custom_query:
+        return custom_query
     query = base_query
     if specific_ip:
         query = f'ip:"{specific_ip}"'
@@ -79,6 +84,8 @@ def fetch_results(api, query, page, results_queue):
             return
         except shodan.APIError as e:
             logging.error(f'Shodan API Error on page {page}: {e}')
+            if "usage limits" in str(e):
+                time.sleep(60)  # Wait before retrying if rate limit is hit
         except (RequestException, ConnectionError, Timeout) as e:
             logging.error(f'Network error on page {page}: {e}')
         except Exception as e:
@@ -114,6 +121,7 @@ def print_results(results_list):
         port = result.get('port', 'N/A')
         org = result.get('org', 'N/A')
         os = result.get('os', 'N/A')
+        data = result.get('data', '')
         shodan_url = f"https://www.shodan.io/host/{ip_str}"
         if 'html' in result and '<img' in result['html']:
             image_url = "Image available"
@@ -123,6 +131,7 @@ def print_results(results_list):
         logging.info(f'Port: {port}')
         logging.info(f'Organization: {org}')
         logging.info(f'OS: {os}')
+        logging.info(f'Data: {data}')
         logging.info(f'Shodan URL: {shodan_url}')
         logging.info(f'Image: {image_url}')
         logging.info('-' * 60)
@@ -146,7 +155,7 @@ def save_images(results_list, output_dir):
             metadata_path = os.path.join(output_dir, f"{ip_str}_{port}.json")
             try:
                 response = requests.get(image_url, stream=True)
-                if response.status_code == 200:
+                if response.status_code == 200):
                     with open(image_path, 'wb') as file:
                         for chunk in response.iter_content(1024):
                             file.write(chunk)
@@ -158,7 +167,63 @@ def save_images(results_list, output_dir):
             except Exception as e:
                 logging.error(f'Error saving image for {ip_str}:{port}: {e}')
 
-def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=None):
+def handle_stream(api_key, filters, output_dir):
+    try:
+        api = shodan.Shodan(api_key)
+        stream = api.stream
+        for banner in stream.banners():
+            if all(f in banner.get('data', '') for f in filters.values() if f):
+                ip_str = banner.get('ip_str', 'N/A')
+                port = banner.get('port', 'N/A')
+                org = banner.get('org', 'N/A')
+                os = banner.get('os', 'N/A')
+                shodan_url = f"https://www.shodan.io/host/{ip_str}"
+                result = {
+                    'ip_str': ip_str,
+                    'port': port,
+                    'org': org,
+                    'os': os,
+                    'shodan_url': shodan_url,
+                    'banner': banner
+                }
+                print_results([result])
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                output_file = os.path.join(output_dir, f"stream_{date_str}.json")
+                save_results_to_file([result], output_file)
+    except shodan.APIError as e:
+        logging.error(f'Shodan Stream API Error: {e}')
+    except Exception as e:
+        logging.error(f'Unexpected error in stream: {e}')
+
+def get_ip_info(api, ip):
+    try:
+        info = api.host(ip)
+        return info
+    except shodan.APIError as e:
+        logging.error(f'Shodan API Error retrieving IP info: {e}')
+        return None
+
+def get_scans(api):
+    try:
+        scans = api.scans()
+        return scans
+    except shodan.APIError as e:
+        logging.error(f'Shodan API Error retrieving scans: {e}')
+        return None
+
+def create_scan(api, ip):
+    try:
+        scan = api.scan(ip)
+        return scan
+    except shodan.APIError as e:
+        logging.error(f'Shodan API Error creating scan: {e}')
+        return None
+
+def graceful_shutdown(signum, frame):
+    logging.info("Graceful shutdown initiated...")
+    sys.exit(0)
+
+def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=None, output_dir="results", use_stream=False, scan_ip=None, custom_query=None):
     api_key = load_config()
     if not api_key:
         update_config()
@@ -175,43 +240,69 @@ def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=N
             logging.error(f'Invalid API key: {e}')
             return
 
-        while True:
-            # Display options to the user
-            print("Choose a system/server type to search for:")
-            for key, query in SEARCH_QUERIES.items():
-                print(f"{key}. {query}")
+        if use_stream:
+            handle_stream(api_key, filters, output_dir)
+            return
 
-            choice = input("Enter the number of your choice (or 'exit' to quit): ").strip()
-            if choice.lower() == 'exit':
+        if specific_ip:
+            info = get_ip_info(api, specific_ip)
+            if info:
+                print_results([info])
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                output_file = os.path.join(output_dir, f"{specific_ip}_{date_str}.json")
+                save_results_to_file([info], output_file)
+            return
+
+        if scan_ip:
+            scan = create_scan(api, scan_ip)
+            if scan:
+                logging.info(f'Scan created: {scan}')
+            return
+
+        if custom_query:
+            query = custom_query
+            query_name = "custom_query"
+        else:
+            while True:
+                # Display options to the user
+                print("Choose a system/server type to search for:")
+                for key, query in SEARCH_QUERIES.items():
+                    print(f"{key}. {query}")
+
+                choice = input("Enter the number of your choice (or 'exit' to quit): ").strip()
+                if choice.lower() == 'exit':
+                    break
+
+                if choice not in SEARCH_QUERIES:
+                    print("Invalid choice. Please try again.")
+                    continue
+
+                base_query = SEARCH_QUERIES[choice]
+                query = build_query(base_query, filters, no_password)
+                query_name = base_query.split(":")[1].strip('"')
                 break
 
-            if choice not in SEARCH_QUERIES:
-                print("Invalid choice. Please try again.")
-                continue
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        output_file = os.path.join(output_dir, f"{query_name}_{date_str}.json")
+        image_dir = os.path.join(output_dir, f"{query_name}_{date_str}_images")
 
-            base_query = SEARCH_QUERIES[choice]
-            query = build_query(base_query, filters, no_password, specific_ip)
-            query_name = base_query.split(":")[1].strip('"') if specific_ip is None else specific_ip.replace(":", "_")
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            output_file = f"{query_name}_{date_str}.json"
-            image_dir = f"{query_name}_{date_str}_images"
+        # Initialize the queue and thread pool
+        results_queue = Queue()
 
-            # Initialize the queue and thread pool
-            results_queue = Queue()
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            for page in range(1, page_limit + 1):
+                executor.submit(fetch_results, api, query, page, results_queue)
 
-            with ThreadPoolExecutor(max_workers=threads) as executor:
-                for page in range(1, page_limit + 1):
-                    executor.submit(fetch_results, api, query, page, results_queue)
+        # Collect results
+        results_list = []
+        while not results_queue.empty():
+            results_list.extend(results_queue.get())
+            save_results_to_file(results_list, output_file)  # Save intermediate results
 
-            # Collect results
-            results_list = []
-            while not results_queue.empty():
-                results_list.extend(results_queue.get())
-
-            # Print and save results
-            print_results(results_list)
-            save_results_to_file(results_list, output_file)
-            save_images(results_list, image_dir)
+        # Print and save results
+        print_results(results_list)
+        save_results_to_file(results_list, output_file)
+        save_images(results_list, image_dir)
 
     except shodan.APIError as e:
         logging.error(f'Shodan API Error: {e}')
@@ -220,26 +311,33 @@ def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=N
     except Exception as e:
         logging.error(f'Unexpected error: {e}')
 
-if __name__ '__main__':
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, graceful_shutdown)
+    signal.signal(signal.SIGTERM, graceful_shutdown)
+
     parser = argparse.ArgumentParser(description='Search Shodan for vulnerable systems and servers.')
     parser.add_argument('--pages', type=int, default=20, help='Number of pages to search')
-    parser.add.argument('--threads', type=int, default=10, help='Number of concurrent threads')
+    parser.add_argument('--threads', type=int, default=10, help='Number of concurrent threads')
     parser.add_argument('--update-key', action='store_true', help='Update the Shodan API key')
-    parser.add.argument('--city', help='Filter by city name')
-    parser.add.argument('--country', help='Filter by 2-letter country code')
-    parser.add.argument('--http-title', help='Filter by HTTP title')
-    parser.add.argument('--net', help='Filter by network range or IP in CIDR notation')
-    parser.add.argument('--org', help='Filter by organization name')
-    parser.add.argument('--port', type=int, help='Filter by port number')
-    parser.add.argument('--product', help='Filter by product name')
-    parser.add.argument('--screenshot-label', help='Filter by screenshot label')
-    parser.add.argument('--state', help='Filter by U.S. state')
+    parser.add_argument('--city', help='Filter by city name')
+    parser.add_argument('--country', help='Filter by 2-letter country code')
+    parser.add_argument('--http-title', help='Filter by HTTP title')
+    parser.add_argument('--net', help='Filter by network range or IP in CIDR notation')
+    parser.add_argument('--org', help='Filter by organization name')
+    parser.add_argument('--port', type=int, help='Filter by port number')
+    parser.add_argument('--product', help='Filter by product name')
+    parser.add_argument('--screenshot-label', help='Filter by screenshot label')
+    parser.add_argument('--state', help='Filter by U.S. state')
     parser.add.argument('--asn', help='Filter by Autonomous System Number')
     parser.add.argument('--hostname', help='Filter by hostname')
     parser.add.argument('--before', help='Filter by time before Shodan last observed the device (YYYY-MM-DD)')
     parser.add.argument('--after', help='Filter by time after Shodan last observed the device (YYYY-MM-DD)')
     parser.add.argument('--no-password', action='store_true', help='Search for open VNC or RDP connections without password')
     parser.add.argument('--specific-ip', help='Search for a specific IP address')
+    parser.add.argument('--output-dir', help='Specify a custom output directory for saving results', default="results")
+    parser.add.argument('--use-stream', action='store_true', help='Enable Shodan Stream API for real-time data')
+    parser.add.argument('--scan-ip', help='Create an on-demand scan for a specific IP address')
+    parser.add.argument('--custom-query', help='Specify a custom Shodan search query')
 
     args = parser.parse_args()
 
@@ -262,4 +360,4 @@ if __name__ '__main__':
     if args.update_key:
         update_config()
     else:
-        main(args.pages, args.threads, filters, args.no_password, args.specific_ip)
+        main(args.pages, args.threads, filters, args.no_password, args.specific_ip, args.output_dir, args.use_stream, args.scan_ip, args.custom_query)
