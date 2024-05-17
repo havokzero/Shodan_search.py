@@ -4,8 +4,11 @@ import json
 import threading
 import os
 import time
+import logging
+import requests
 from queue import Queue
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from requests.exceptions import RequestException, ConnectionError, Timeout
 
 CONFIG_FILE = "config.json"
@@ -40,6 +43,8 @@ SEARCH_QUERIES = {
     "26": 'http.title:"vBulletin"'
 }
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 def build_query(base_query, filters):
     query = base_query
     for key, value in filters.items():
@@ -48,23 +53,28 @@ def build_query(base_query, filters):
     return query
 
 def fetch_results(api, query, page, results_queue):
-    try:
-        results = api.search(query, page=page)
-        results_queue.put(results['matches'])
-    except shodan.APIError as e:
-        print(f'Shodan API Error on page {page}: {e}')
-    except (RequestException, ConnectionError, Timeout) as e:
-        print(f'Network error on page {page}: {e}')
-    except Exception as e:
-        print(f'Unexpected error on page {page}: {e}')
+    for attempt in range(3):
+        try:
+            results = api.search(query, page=page)
+            results_queue.put(results['matches'])
+            logging.info(f'Page {page} fetched successfully.')
+            return
+        except shodan.APIError as e:
+            logging.error(f'Shodan API Error on page {page}: {e}')
+        except (RequestException, ConnectionError, Timeout) as e:
+            logging.error(f'Network error on page {page}: {e}')
+        except Exception as e:
+            logging.error(f'Unexpected error on page {page}: {e}')
+        time.sleep(2 ** attempt)
+    logging.error(f'Failed to fetch page {page} after 3 attempts.')
 
 def save_config(api_key):
     try:
         with open(CONFIG_FILE, 'w') as file:
             json.dump({"api_key": api_key}, file)
-        print(f'API key saved to {CONFIG_FILE}')
+        logging.info(f'API key saved to {CONFIG_FILE}')
     except IOError as e:
-        print(f'Error saving API key to config file: {e}')
+        logging.error(f'Error saving API key to config file: {e}')
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -73,7 +83,7 @@ def load_config():
                 config = json.load(file)
             return config.get("api_key")
         except IOError as e:
-            print(f'Error loading config file: {e}')
+            logging.error(f'Error loading config file: {e}')
     return None
 
 def update_config():
@@ -91,21 +101,21 @@ def print_results(results_list):
             image_url = "Image available"
         else:
             image_url = "No image"
-        print(f'IP: {ip_str}')
-        print(f'Port: {port}')
-        print(f'Organization: {org}')
-        print(f'OS: {os}')
-        print(f'Shodan URL: {shodan_url}')
-        print(f'Image: {image_url}')
-        print('-' * 60)
+        logging.info(f'IP: {ip_str}')
+        logging.info(f'Port: {port}')
+        logging.info(f'Organization: {org}')
+        logging.info(f'OS: {os}')
+        logging.info(f'Shodan URL: {shodan_url}')
+        logging.info(f'Image: {image_url}')
+        logging.info('-' * 60)
 
 def save_results_to_file(results_list, output_file):
     try:
         with open(output_file, 'w') as file:
             json.dump(results_list, file, indent=4)
-        print(f'Results saved to {output_file}')
+        logging.info(f'Results saved to {output_file}')
     except IOError as e:
-        print(f'Error saving results to file: {e}')
+        logging.error(f'Error saving results to file: {e}')
 
 def save_images(results_list, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -115,17 +125,20 @@ def save_images(results_list, output_dir):
             port = result.get('port', 'N/A')
             image_url = f"https://www.shodan.io/host/{ip_str}/image"
             image_path = os.path.join(output_dir, f"{ip_str}_{port}.png")
+            metadata_path = os.path.join(output_dir, f"{ip_str}_{port}.json")
             try:
                 response = requests.get(image_url, stream=True)
                 if response.status_code == 200:
                     with open(image_path, 'wb') as file:
                         for chunk in response.iter_content(1024):
                             file.write(chunk)
-                    print(f'Image saved to {image_path}')
+                    with open(metadata_path, 'w') as file:
+                        json.dump(result, file, indent=4)
+                    logging.info(f'Image and metadata saved for {ip_str}:{port}')
                 else:
-                    print(f'Failed to save image for {ip_str}:{port}')
+                    logging.error(f'Failed to save image for {ip_str}:{port}')
             except Exception as e:
-                print(f'Error saving image for {ip_str}:{port}: {e}')
+                logging.error(f'Error saving image for {ip_str}:{port}: {e}')
 
 def main(page_limit=20, threads=10, filters={}):
     api_key = load_config()
@@ -141,7 +154,7 @@ def main(page_limit=20, threads=10, filters={}):
         try:
             api.info()
         except shodan.APIError as e:
-            print(f'Invalid API key: {e}')
+            logging.error(f'Invalid API key: {e}')
             return
 
         while True:
@@ -165,20 +178,12 @@ def main(page_limit=20, threads=10, filters={}):
             output_file = f"{query_name}_{date_str}.json"
             image_dir = f"{query_name}_{date_str}_images"
 
-            # Initialize the queue and threads
+            # Initialize the queue and thread pool
             results_queue = Queue()
-            threads_list = []
 
-            # Create and start threads
-            for page in range(1, page_limit + 1):
-                thread = threading.Thread(target=fetch_results, args=(api, query, page, results_queue))
-                thread.start()
-                threads_list.append(thread)
-                time.sleep(1 / threads)  # Adjust delay to respect rate limits
-
-            # Wait for all threads to finish
-            for thread in threads_list:
-                thread.join()
+            with ThreadPoolExecutor(max_workers=threads) as executor:
+                for page in range(1, page_limit + 1):
+                    executor.submit(fetch_results, api, query, page, results_queue)
 
             # Collect results
             results_list = []
@@ -191,11 +196,11 @@ def main(page_limit=20, threads=10, filters={}):
             save_images(results_list, image_dir)
 
     except shodan.APIError as e:
-        print(f'Shodan API Error: {e}')
+        logging.error(f'Shodan API Error: {e}')
     except (RequestException, ConnectionError, Timeout) as e:
-        print(f'Network error: {e}')
+        logging.error(f'Network error: {e}')
     except Exception as e:
-        print(f'Unexpected error: {e}')
+        logging.error(f'Unexpected error: {e}')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Search Shodan for vulnerable systems and servers.')
@@ -230,4 +235,3 @@ if __name__ == '__main__':
         update_config()
     else:
         main(args.pages, args.threads, filters)
-                
