@@ -13,7 +13,7 @@ from requests.exceptions import RequestException, ConnectionError, Timeout
 
 CONFIG_FILE = "config.json"
 
-# Define search queries for known vulnerable systems, including SCADA, ICS, CMS, and forums
+# Define search queries for known vulnerable systems, including SCADA, ICS, CMS, forums, VNC, and RDP
 SEARCH_QUERIES = {
     "1": 'os:"Windows XP"',
     "2": 'product:"MySQL"',
@@ -40,16 +40,29 @@ SEARCH_QUERIES = {
     "23": 'http.title:"Joomla"',
     "24": 'http.title:"Drupal"',
     "25": 'http.title:"phpBB"',
-    "26": 'http.title:"vBulletin"'
+    "26": 'http.title:"vBulletin"',
+    "27": 'port:5900 product:VNC',
+    "28": 'port:3389 product:Terminal Services',
+    "29": 'product:"Siemens PLC"',
+    "30": 'product:"D-Link Router"',
+    "31": 'product:"MikroTik Router"',
+    "32": 'product:"Netgear Router"',
+    "33": 'product:"QNAP NAS"',
+    "34": 'product:"VoIP Phone"',
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def build_query(base_query, filters):
+def build_query(base_query, filters, no_password=False):
     query = base_query
     for key, value in filters.items():
         if value:
             query += f' {key}:"{value}"'
+    if no_password:
+        if "VNC" in base_query:
+            query += ' authentication disabled'
+        elif "Terminal Services" in base_query:
+            query += ' "authentication disabled"'
     return query
 
 def fetch_results(api, query, page, results_queue):
@@ -140,7 +153,7 @@ def save_images(results_list, output_dir):
             except Exception as e:
                 logging.error(f'Error saving image for {ip_str}:{port}: {e}')
 
-def main(page_limit=20, threads=10, filters={}):
+def main(page_limit=20, threads=10, filters={}, no_password=False):
     api_key = load_config()
     if not api_key:
         update_config()
@@ -172,7 +185,7 @@ def main(page_limit=20, threads=10, filters={}):
                 continue
 
             base_query = SEARCH_QUERIES[choice]
-            query = build_query(base_query, filters)
+            query = build_query(base_query, filters, no_password)
             query_name = base_query.split(":")[1].strip('"')
             date_str = datetime.now().strftime("%Y-%m-%d")
             output_file = f"{query_name}_{date_str}.json"
@@ -216,6 +229,11 @@ if __name__ == '__main__':
     parser.add_argument('--product', help='Filter by product name')
     parser.add_argument('--screenshot-label', help='Filter by screenshot label')
     parser.add_argument('--state', help='Filter by U.S. state')
+    parser.add_argument('--asn', help='Filter by Autonomous System Number')
+    parser.add_argument('--hostname', help='Filter by hostname')
+    parser.add_argument('--before', help='Filter by time before Shodan last observed the device (YYYY-MM-DD)')
+    parser.add_argument('--after', help='Filter by time after Shodan last observed the device (YYYY-MM-DD)')
+    parser.add_argument('--no-password', action='store_true', help='Search for open VNC or RDP connections without password')
 
     args = parser.parse_args()
 
@@ -229,9 +247,13 @@ if __name__ == '__main__':
         "product": args.product,
         "screenshot.label": args.screenshot_label,
         "state": args.state,
+        "asn": args.asn,
+        "hostname": args.hostname,
+        "before": args.before,
+        "after": args.after,
     }
 
     if args.update_key:
         update_config()
     else:
-        main(args.pages, args.threads, filters)
+        main(args.pages, args.threads, filters, args.no_password)
