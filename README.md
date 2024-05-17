@@ -34,7 +34,7 @@ On the first run, the tool will ask for your Shodan API key and save it to a con
 python3 shodan_search.py --pages 10 --threads 5
 ```
 
-##Utilizing the Basic Paid API AccessIf you have the basic paid API access, you can obtain more results with a higher ##number of threads:
+##Utilizing the Basic Paid API AccessIf you have the basic paid API access, you can obtain more results with a higher number of threads:
 
 ```bash
 python3 shodan_search.py --pages 20 --threads 10
