@@ -10,7 +10,7 @@ from requests.exceptions import RequestException, ConnectionError, Timeout
 
 CONFIG_FILE = "config.json"
 
-# Define search queries for known vulnerable systems, including SCADA and ICS
+# Define search queries for known vulnerable systems, including SCADA, ICS, CMS, and forums
 SEARCH_QUERIES = {
     "1": 'os:"Windows XP"',
     "2": 'product:"MySQL"',
@@ -33,6 +33,11 @@ SEARCH_QUERIES = {
     "19": 'product:"Apache httpd"',
     "20": 'product:"Redis"',
     "21": 'product:"Oracle DB"',
+    "22": 'http.title:"WordPress"',
+    "23": 'http.title:"Joomla"',
+    "24": 'http.title:"Drupal"',
+    "25": 'http.title:"phpBB"',
+    "26": 'http.title:"vBulletin"'
 }
 
 def fetch_results(api, query, page, results_queue):
@@ -95,7 +100,7 @@ def save_results_to_file(results_list, output_file):
     except IOError as e:
         print(f'Error saving results to file: {e}')
 
-def main(page_limit=1, threads=5):
+def main(page_limit=10, threads=10):
     api_key = load_config()
     if not api_key:
         update_config()
@@ -111,11 +116,6 @@ def main(page_limit=1, threads=5):
         except shodan.APIError as e:
             print(f'Invalid API key: {e}')
             return
-
-        # Warning for free API key limits
-        if page_limit > 1 and "SHODAN_API_PLAN" not in os.environ:
-            print("Warning: Free Shodan API key is limited to 1 page (100 results).")
-            page_limit = 1
 
         while True:
             # Display options to the user
@@ -169,8 +169,8 @@ def main(page_limit=1, threads=5):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Search Shodan for vulnerable systems and servers.')
-    parser.add_argument('--pages', type=int, default=1, help='Number of pages to search')
-    parser.add_argument('--threads', type=int, default=5, help='Number of concurrent threads')
+    parser.add_argument('--pages', type=int, default=10, help='Number of pages to search')
+    parser.add_argument('--threads', type=int, default=10, help='Number of concurrent threads')
     parser.add_argument('--update-key', action='store_true', help='Update the Shodan API key')
 
     args = parser.parse_args()
@@ -179,4 +179,4 @@ if __name__ == '__main__':
         update_config()
     else:
         main(args.pages, args.threads)
-            
+                
