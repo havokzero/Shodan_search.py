@@ -40,6 +40,13 @@ SEARCH_QUERIES = {
     "26": 'http.title:"vBulletin"'
 }
 
+def build_query(base_query, filters):
+    query = base_query
+    for key, value in filters.items():
+        if value:
+            query += f' {key}:"{value}"'
+    return query
+
 def fetch_results(api, query, page, results_queue):
     try:
         results = api.search(query, page=page)
@@ -100,7 +107,27 @@ def save_results_to_file(results_list, output_file):
     except IOError as e:
         print(f'Error saving results to file: {e}')
 
-def main(page_limit=10, threads=10):
+def save_images(results_list, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for result in results_list:
+        if 'html' in result and '<img' in result['html']:
+            ip_str = result.get('ip_str', 'N/A')
+            port = result.get('port', 'N/A')
+            image_url = f"https://www.shodan.io/host/{ip_str}/image"
+            image_path = os.path.join(output_dir, f"{ip_str}_{port}.png")
+            try:
+                response = requests.get(image_url, stream=True)
+                if response.status_code == 200:
+                    with open(image_path, 'wb') as file:
+                        for chunk in response.iter_content(1024):
+                            file.write(chunk)
+                    print(f'Image saved to {image_path}')
+                else:
+                    print(f'Failed to save image for {ip_str}:{port}')
+            except Exception as e:
+                print(f'Error saving image for {ip_str}:{port}: {e}')
+
+def main(page_limit=20, threads=10, filters={}):
     api_key = load_config()
     if not api_key:
         update_config()
@@ -131,10 +158,12 @@ def main(page_limit=10, threads=10):
                 print("Invalid choice. Please try again.")
                 continue
 
-            search_query = SEARCH_QUERIES[choice]
-            query_name = search_query.split(":")[1].strip('"')
+            base_query = SEARCH_QUERIES[choice]
+            query = build_query(base_query, filters)
+            query_name = base_query.split(":")[1].strip('"')
             date_str = datetime.now().strftime("%Y-%m-%d")
             output_file = f"{query_name}_{date_str}.json"
+            image_dir = f"{query_name}_{date_str}_images"
 
             # Initialize the queue and threads
             results_queue = Queue()
@@ -142,7 +171,7 @@ def main(page_limit=10, threads=10):
 
             # Create and start threads
             for page in range(1, page_limit + 1):
-                thread = threading.Thread(target=fetch_results, args=(api, search_query, page, results_queue))
+                thread = threading.Thread(target=fetch_results, args=(api, query, page, results_queue))
                 thread.start()
                 threads_list.append(thread)
                 time.sleep(1 / threads)  # Adjust delay to respect rate limits
@@ -159,6 +188,7 @@ def main(page_limit=10, threads=10):
             # Print and save results
             print_results(results_list)
             save_results_to_file(results_list, output_file)
+            save_images(results_list, image_dir)
 
     except shodan.APIError as e:
         print(f'Shodan API Error: {e}')
@@ -169,14 +199,35 @@ def main(page_limit=10, threads=10):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Search Shodan for vulnerable systems and servers.')
-    parser.add_argument('--pages', type=int, default=10, help='Number of pages to search')
+    parser.add_argument('--pages', type=int, default=20, help='Number of pages to search')
     parser.add_argument('--threads', type=int, default=10, help='Number of concurrent threads')
     parser.add_argument('--update-key', action='store_true', help='Update the Shodan API key')
+    parser.add_argument('--city', help='Filter by city name')
+    parser.add_argument('--country', help='Filter by 2-letter country code')
+    parser.add_argument('--http-title', help='Filter by HTTP title')
+    parser.add_argument('--net', help='Filter by network range or IP in CIDR notation')
+    parser.add_argument('--org', help='Filter by organization name')
+    parser.add_argument('--port', type=int, help='Filter by port number')
+    parser.add_argument('--product', help='Filter by product name')
+    parser.add_argument('--screenshot-label', help='Filter by screenshot label')
+    parser.add_argument('--state', help='Filter by U.S. state')
 
     args = parser.parse_args()
+
+    filters = {
+        "city": args.city,
+        "country": args.country,
+        "http.title": args.http_title,
+        "net": args.net,
+        "org": args.org,
+        "port": args.port,
+        "product": args.product,
+        "screenshot.label": args.screenshot_label,
+        "state": args.state,
+    }
 
     if args.update_key:
         update_config()
     else:
-        main(args.pages, args.threads)
+        main(args.pages, args.threads, filters)
                 
