@@ -1,24 +1,68 @@
-this tool will ask you for the api key on the furst run then save it to a configuration file
+# Shodan Search Tool
 
-you should run the tool with this command 
+This tool allows you to perform comprehensive searches on Shodan using various filters. It retrieves results, saves them to JSON files, and handles images when available. The tool is designed to be flexible and user-friendly, accommodating multiple search options and configurations.
 
+## Features
+
+- **API Key Management:** Prompts for the Shodan API key on the first run and saves it to a configuration file for future use.
+- **Multiple Filters:** Supports various Shodan filters (except `vuln` and `tag`) for targeted searches.
+- **Parallel Processing:** Utilizes multiple threads to perform searches efficiently.
+- **Result Handling:** Saves search results to JSON files and retrieves images when available.
+- **Retry Logic:** Implements retry logic for network errors, making the script robust and reliable.
+- **Continuous Search Loop:** Allows performing multiple searches in a single session without restarting the script.
+
+## Installation
+
+1. **Clone the repository:**
+    ```bash
+    git clone https://github.com/havokzero/Shodan_search.py.git
+    cd Shodan_search.py
+    ```
+
+2. **Install the required dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+## Usage
+
+### Basic Usage
+
+On the first run, the tool will ask for your Shodan API key and save it to a configuration file. You can then run the tool using the following command:
+
+```bash
 python3 shodan_search.py --pages 10 --threads 5
+```
 
-if you have the basic paid api access you have the ability ti obtain more results with this command
+Utilizing the Basic Paid API AccessIf you have the basic paid API access, you can obtain more results with a higher number of threads:
 
-python3 shodan_search.py --pages 10 --threads 10
+```bash
+python3 shodan_search.py --pages 20 --threads 10
+```
 
-to urilize shodan filers all exept "vuln" and "tag" here is an example 
-
+Using Shodan FiltersTo use Shodan filters (all except vuln and tag), you can run the tool with the desired filters. Here is an example:
+```bash
 python3 shodan_search.py --pages 20 --threads 10 --city "San Diego" --country "US" --http-title "Hacked"
+```
 
-
-the tool will automatically save the output to a json file for easy reading.
-
-to search for connections such as vnc or rdp woth no password you can run this command
-
+Searching for Open VNC or RDP ConnectionsTo search for connections such as VNC or RDP with no password, use the following command:
+```bash
 python3 shodan_search.py --pages 20 --threads 10 --no-password
+```
 
-to update the API key you can run this command 
-
+Updating the API KeyTo update the Shodan API key, run the following command:
+```bash
 python3 shodan_search.py --update-key
+```
+
+Examples:
+
+Basic Search
+```bash
+python3 shodan_search.py --pages 10 --threads 5
+```
+Advanced Search with Filters:
+```bash
+python3 shodan_search.py --pages 20 --threads 10 --city "San Diego" --country "US" --http-title "Hacked"
+```
+
