@@ -9,7 +9,9 @@ if you have the basic paid api access you have the ability ti obtain more result
 
 python3 shodan_search.py --pages 10 --threads 10
 
+to urilize shodan filers all exept "vuln" and "tag" here is an example 
 
+python3 shodan_search.py --pages 20 --threads 10 --city "San Diego" --country "US" --http-title "Hacked"
 
 
 the tool will automatically save the output to a json file for easy reading.
