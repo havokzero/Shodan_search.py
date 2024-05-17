@@ -65,4 +65,22 @@ Advanced Search with Filters:
 ```bash
 python3 shodan_search.py --pages 20 --threads 10 --city "San Diego" --country "US" --http-title "Hacked"
 ```
+Search for a Specific IP Address
+```bash
+python3 shodan_search.py --pages 1 --threads 1 --specific-ip "1.2.3.4"
+```
 
+Search for SS7 Systems
+```bash
+python3 shodan_search.py --pages 20 --threads 10 --port 2905 --protocol ss7
+```
+
+
+### Summary of Changes
+
+1. **Script Updates:** 
+    - Added functionality to search for SS7 systems by port and protocol.
+    - Simplified the usage for specific IP address searches.
+2. **README.md Updates:** 
+    - Included instructions for the new functionalities.
+    - Improved formatting and added examples for specific searches
