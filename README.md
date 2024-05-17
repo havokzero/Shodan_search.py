@@ -1,4 +1,4 @@
-this tool will ask you for the api key on the furst run then savecitcto a configuration file
+this tool will ask you for the api key on the furst run then save it to a configuration file
 
 
 you should run the tool with this command 
