@@ -13,7 +13,7 @@ from requests.exceptions import RequestException, ConnectionError, Timeout
 
 CONFIG_FILE = "config.json"
 
-# Define search queries for known vulnerable systems, including SCADA, ICS, CMS, forums, VNC, and RDP
+# Define search queries for known vulnerable systems, including SCADA, ICS, CMS, forums, VNC, RDP, specific IP addresses, and SS7 systems
 SEARCH_QUERIES = {
     "1": 'os:"Windows XP"',
     "2": 'product:"MySQL"',
@@ -49,20 +49,25 @@ SEARCH_QUERIES = {
     "32": 'product:"Netgear Router"',
     "33": 'product:"QNAP NAS"',
     "34": 'product:"VoIP Phone"',
+    "35": 'ip:"SPECIFIC_IP"',  # Placeholder for specific IP search
+    "36": 'port:2905 protocol:ss7'
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def build_query(base_query, filters, no_password=False):
+def build_query(base_query, filters, no_password=False, specific_ip=None):
     query = base_query
-    for key, value in filters.items():
-        if value:
-            query += f' {key}:"{value}"'
-    if no_password:
-        if "VNC" in base_query:
-            query += ' authentication disabled'
-        elif "Terminal Services" in base_query:
-            query += ' "authentication disabled"'
+    if specific_ip:
+        query = f'ip:"{specific_ip}"'
+    else:
+        for key, value in filters.items():
+            if value:
+                query += f' {key}:"{value}"'
+        if no_password:
+            if "VNC" in base_query:
+                query += ' authentication disabled'
+            elif "Terminal Services" in base_query:
+                query += ' "authentication disabled"'
     return query
 
 def fetch_results(api, query, page, results_queue):
@@ -153,7 +158,7 @@ def save_images(results_list, output_dir):
             except Exception as e:
                 logging.error(f'Error saving image for {ip_str}:{port}: {e}')
 
-def main(page_limit=20, threads=10, filters={}, no_password=False):
+def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=None):
     api_key = load_config()
     if not api_key:
         update_config()
@@ -185,8 +190,8 @@ def main(page_limit=20, threads=10, filters={}, no_password=False):
                 continue
 
             base_query = SEARCH_QUERIES[choice]
-            query = build_query(base_query, filters, no_password)
-            query_name = base_query.split(":")[1].strip('"')
+            query = build_query(base_query, filters, no_password, specific_ip)
+            query_name = base_query.split(":")[1].strip('"') if specific_ip is None else specific_ip.replace(":", "_")
             date_str = datetime.now().strftime("%Y-%m-%d")
             output_file = f"{query_name}_{date_str}.json"
             image_dir = f"{query_name}_{date_str}_images"
@@ -215,25 +220,26 @@ def main(page_limit=20, threads=10, filters={}, no_password=False):
     except Exception as e:
         logging.error(f'Unexpected error: {e}')
 
-if __name__ == '__main__':
+if __name__ '__main__':
     parser = argparse.ArgumentParser(description='Search Shodan for vulnerable systems and servers.')
     parser.add_argument('--pages', type=int, default=20, help='Number of pages to search')
-    parser.add_argument('--threads', type=int, default=10, help='Number of concurrent threads')
+    parser.add.argument('--threads', type=int, default=10, help='Number of concurrent threads')
     parser.add_argument('--update-key', action='store_true', help='Update the Shodan API key')
-    parser.add_argument('--city', help='Filter by city name')
-    parser.add_argument('--country', help='Filter by 2-letter country code')
-    parser.add_argument('--http-title', help='Filter by HTTP title')
-    parser.add_argument('--net', help='Filter by network range or IP in CIDR notation')
-    parser.add_argument('--org', help='Filter by organization name')
-    parser.add_argument('--port', type=int, help='Filter by port number')
-    parser.add_argument('--product', help='Filter by product name')
-    parser.add_argument('--screenshot-label', help='Filter by screenshot label')
-    parser.add_argument('--state', help='Filter by U.S. state')
-    parser.add_argument('--asn', help='Filter by Autonomous System Number')
-    parser.add_argument('--hostname', help='Filter by hostname')
-    parser.add_argument('--before', help='Filter by time before Shodan last observed the device (YYYY-MM-DD)')
-    parser.add_argument('--after', help='Filter by time after Shodan last observed the device (YYYY-MM-DD)')
-    parser.add_argument('--no-password', action='store_true', help='Search for open VNC or RDP connections without password')
+    parser.add.argument('--city', help='Filter by city name')
+    parser.add.argument('--country', help='Filter by 2-letter country code')
+    parser.add.argument('--http-title', help='Filter by HTTP title')
+    parser.add.argument('--net', help='Filter by network range or IP in CIDR notation')
+    parser.add.argument('--org', help='Filter by organization name')
+    parser.add.argument('--port', type=int, help='Filter by port number')
+    parser.add.argument('--product', help='Filter by product name')
+    parser.add.argument('--screenshot-label', help='Filter by screenshot label')
+    parser.add.argument('--state', help='Filter by U.S. state')
+    parser.add.argument('--asn', help='Filter by Autonomous System Number')
+    parser.add.argument('--hostname', help='Filter by hostname')
+    parser.add.argument('--before', help='Filter by time before Shodan last observed the device (YYYY-MM-DD)')
+    parser.add.argument('--after', help='Filter by time after Shodan last observed the device (YYYY-MM-DD)')
+    parser.add.argument('--no-password', action='store_true', help='Search for open VNC or RDP connections without password')
+    parser.add.argument('--specific-ip', help='Search for a specific IP address')
 
     args = parser.parse_args()
 
@@ -256,4 +262,4 @@ if __name__ == '__main__':
     if args.update_key:
         update_config()
     else:
-        main(args.pages, args.threads, filters, args.no_password)
+        main(args.pages, args.threads, filters, args.no_password, args.specific_ip)
