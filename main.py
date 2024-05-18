@@ -12,7 +12,7 @@ from queue import Queue
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from requests.exceptions import RequestException, ConnectionError, Timeout
-from helper import save_config, load_config, update_config, build_query, print_results, save_results_to_file
+from helper import save_config, load_config, update_config, build_query, print_results, save_results_to_file, sanitize_filename
 from filters import FILTERS
 from queries import SEARCH_QUERIES
 
@@ -32,7 +32,10 @@ def fetch_results(api, query, page, results_queue):
                 logging.error("Access denied (403 Forbidden). Check your API key permissions.")
                 return
             if "usage limits" in str(e):
+                logging.info("Rate limit hit, waiting for 60 seconds before retrying...")
                 time.sleep(60)  # Wait before retrying if rate limit is hit
+            if "Search cursor timed out" in str(e):
+                logging.info("Search cursor timed out, retrying page...")
         except (RequestException, ConnectionError, Timeout) as e:
             logging.error(f'Network error on page {page}: {e}')
         except Exception as e:
@@ -43,7 +46,7 @@ def fetch_results(api, query, page, results_queue):
 def save_images(results_list, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     for result in results_list:
-        if 'html' in result and '<img' in result['html']:
+        if result.get('opts', {}).get('screenshot'):
             ip_str = result.get('ip_str', 'N/A')
             port = result.get('port', 'N/A')
             image_url = f"https://www.shodan.io/host/{ip_str}/image"
@@ -85,7 +88,7 @@ def handle_stream(api_key, filters, output_dir):
                 print_results([result])
                 date_str = datetime.now().strftime("%Y-%m-%d")
                 output_file = os.path.join(output_dir, f"stream_{date_str}.json")
-                save_results_to_file([result], output_file)
+                save_results_to_file([result], output_file, "stream")
     except shodan.APIError as e:
         logging.error(f'Shodan Stream API Error: {e}')
     except Exception as e:
@@ -119,7 +122,7 @@ def graceful_shutdown(signum, frame):
     logging.info("Graceful shutdown initiated...")
     sys.exit(0)
 
-def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=None, output_dir="results", use_stream=False, scan_ip=None, custom_query=None):
+def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=None, output_dir="results", use_stream=False, scan_ip=None, custom_query=None, has_image=False):
     api_key = load_config()
     if not api_key:
         update_config()
@@ -145,8 +148,8 @@ def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=N
             if info:
                 print_results([info])
                 date_str = datetime.now().strftime("%Y-%m-%d")
-                output_file = os.path.join(output_dir, f"{specific_ip}_{date_str}.json")
-                save_results_to_file([info], output_file)
+                output_file = os.path.join(output_dir, f"{sanitize_filename(specific_ip)}_{date_str}.json")
+                save_results_to_file([info], output_file, specific_ip)
             return
 
         if scan_ip:
@@ -174,13 +177,13 @@ def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=N
                     continue
 
                 base_query = SEARCH_QUERIES[choice]
-                query = build_query(base_query, filters, no_password)
+                query = build_query(base_query, filters, no_password, has_image=has_image)
                 query_name = base_query.split(":")[1].strip('"')
                 break
 
         date_str = datetime.now().strftime("%Y-%m-%d")
-        output_file = os.path.join(output_dir, f"{query_name}_{date_str}.json")
-        image_dir = os.path.join(output_dir, f"{query_name}_{date_str}_images")
+        output_file = os.path.join(output_dir, f"{sanitize_filename(query_name)}_{date_str}.json")
+        image_dir = os.path.join(output_dir, f"{sanitize_filename(query_name)}_{date_str}_images")
 
         # Initialize the queue and thread pool
         results_queue = Queue()
@@ -193,11 +196,12 @@ def main(page_limit=20, threads=10, filters={}, no_password=False, specific_ip=N
         results_list = []
         while not results_queue.empty():
             results_list.extend(results_queue.get())
-            save_results_to_file(results_list, output_file)  # Save intermediate results
+            logging.info(f"Fetched {len(results_list)} results so far.")  # Log the number of results fetched
+            save_results_to_file(results_list, output_dir, query_name)  # Save intermediate results
 
         # Print and save results
         print_results(results_list)
-        save_results_to_file(results_list, output_file)
+        save_results_to_file(results_list, output_dir, query_name)
         save_images(results_list, image_dir)
 
     except shodan.APIError as e:
@@ -234,6 +238,7 @@ if __name__ == '__main__':
     parser.add_argument('--use-stream', action='store_true', help='Enable Shodan Stream API for real-time data')
     parser.add_argument('--scan-ip', help='Create an on-demand scan for a specific IP address')
     parser.add_argument('--custom-query', help='Specify a custom Shodan search query')
+    parser.add_argument('--has-image', action='store_true', help='Filter results to only include those with images')
 
     args = parser.parse_args()
 
@@ -256,4 +261,4 @@ if __name__ == '__main__':
     if args.update_key:
         update_config()
     else:
-        main(args.pages, args.threads, filters, args.no_password, args.specific_ip, args.output_dir, args.use_stream, args.scan_ip, args.custom_query)
+        main(args.pages, args.threads, filters, args.no_password, args.specific_ip, args.output_dir, args.use_stream, args.scan_ip, args.custom_query, args.has_image)
